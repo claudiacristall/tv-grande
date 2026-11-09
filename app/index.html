@@ -147,7 +147,7 @@
   var LS={get:function(k){try{return localStorage.getItem(k)}catch(e){return null}},set:function(k,v){try{localStorage.setItem(k,v)}catch(e){}},del:function(k){try{localStorage.removeItem(k)}catch(e){}}};
   var creds=null;
   var state={tab:'movies',size:LS.get('tvg_size')||'normal',cats:[],streams:[],groups:{},filterCat:'all',query:''};
-  var rowsMap=[],cur=[0,0],hls=null,searchTimer=null;
+  var rowsMap=[],cur=[0,0],hls=null,searchTimer=null,lastFocusedCard=null;
 
   // Teclas del control de la TV (Tizen) y teclado
   function keyName(e){
@@ -179,7 +179,7 @@
     else p.appendChild(el('div','ph',name));
     b.appendChild(p);b.appendChild(el('div','cname',name));
     b.addEventListener('click',function(){onItem(item)});
-    b.addEventListener('focus',function(){cur=[+b.dataset.r,+b.dataset.c]});
+    b.addEventListener('focus',function(){cur=[+b.dataset.r,+b.dataset.c];lastFocusedCard=b;});
     return b;
   }
   function indexGrid(cards){
@@ -239,19 +239,41 @@
     });
   }
 
+  function focusables(scope){
+    var list=Array.prototype.slice.call(scope.querySelectorAll('button,input,[tabindex]:not([tabindex="-1"])'));
+    return list.filter(function(e){return e.offsetParent!==null && !e.disabled;});
+  }
+  function currentScope(){
+    var ids=['player','seriesView','cats','login'];
+    for(var i=0;i<ids.length;i++){var e=$('#'+ids[i]);if(e&&!e.classList.contains('hidden'))return e;}
+    return document.body;
+  }
+  function spatialNav(dir){
+    var items=focusables(currentScope());var a=document.activeElement;
+    var ar=(a&&a.getBoundingClientRect)?a.getBoundingClientRect():{left:0,top:0,width:0,height:0};
+    var acx=ar.left+ar.width/2,acy=ar.top+ar.height/2,best=null,bs=Infinity;
+    items.forEach(function(el){
+      if(el===a)return;var r=el.getBoundingClientRect();var cx=r.left+r.width/2,cy=r.top+r.height/2;var dx=cx-acx,dy=cy-acy;var pri,cr;
+      if(dir==='right'){if(dx<=1)return;pri=dx;cr=Math.abs(dy);}
+      else if(dir==='left'){if(dx>=-1)return;pri=-dx;cr=Math.abs(dy);}
+      else if(dir==='down'){if(dy<=1)return;pri=dy;cr=Math.abs(dx);}
+      else{if(dy>=-1)return;pri=-dy;cr=Math.abs(dx);}
+      var sc=pri+cr*2;if(sc<bs){bs=sc;best=el;}
+    });
+    if(best){best.focus();best.scrollIntoView({block:'nearest',inline:'nearest'});}
+  }
   document.addEventListener('keydown',function(e){
-    var k=keyName(e);
+    var k=keyName(e);var a=document.activeElement;
     if(!$('#player').classList.contains('hidden')){if(k==='Backspace'||k==='Return'||k==='Escape'){e.preventDefault();closeOverlay('player')}return;}
     if(k==='Return'||k==='Escape'){var done=false;['cats','seriesView'].forEach(function(id){if(!$('#'+id).classList.contains('hidden')){closeOverlay(id);done=true;}});if(done){e.preventDefault();return;}}
-    var a=document.activeElement;
-    if(!a||!a.classList||!a.classList.contains('card'))return;
-    if(k==='Enter'){e.preventDefault();a.click();return;}
-    var r=+a.dataset.r,c=+a.dataset.c,nr=r,nc=c;
-    if(k==='ArrowRight')nc=c+1;else if(k==='ArrowLeft')nc=c-1;else if(k==='ArrowDown')nr=r+1;else if(k==='ArrowUp')nr=r-1;else return;
-    e.preventDefault();
-    if(nr<0||nc<0||!rowsMap[nr])return;
-    var row=rowsMap[nr];var tgt=row[Math.min(nc,row.length-1)];
-    if(tgt){tgt.focus();tgt.scrollIntoView({block:'nearest',inline:'center'});}
+    if(k==='Enter'){
+      if(a&&a.tagName==='INPUT')return;
+      if(a&&((a.classList&&a.classList.contains('card'))||a.tagName==='BUTTON')){e.preventDefault();a.click();}
+      return;
+    }
+    var dir=k==='ArrowRight'?'right':k==='ArrowLeft'?'left':k==='ArrowDown'?'down':k==='ArrowUp'?'up':null;
+    if(!dir)return;
+    e.preventDefault();spatialNav(dir);
   });
 
   function catAction(){return state.tab==='movies'?'get_vod_categories':state.tab==='series'?'get_series_categories':'get_live_categories';}
@@ -293,8 +315,8 @@
     else v.src=url;
     var p=v.play();if(p&&p.catch)p.catch(function(){});
   }
-  function openOverlay(id){$('#'+id).classList.remove('hidden');}
-  function closeOverlay(id){$('#'+id).classList.add('hidden');if(id==='player'){var v=$('#video');try{v.pause();v.removeAttribute('src');v.load();}catch(e){}if(hls){try{hls.destroy()}catch(e){}hls=null;}if(rowsMap[cur[0]]&&rowsMap[cur[0]][cur[1]])rowsMap[cur[0]][cur[1]].focus();}}
+  function openOverlay(id){$('#'+id).classList.remove('hidden');setTimeout(function(){var sc=$('#'+id);var first=null;if(id==='login')first=$('#srv');else if(id==='cats')first=sc.querySelector('.cat');else if(id==='seriesView')first=sc.querySelector('.ep')||$('#seriesClose');if(first)first.focus();},40);}
+  function closeOverlay(id){$('#'+id).classList.add('hidden');if(id==='player'){var v=$('#video');try{v.pause();v.removeAttribute('src');v.load();}catch(e){}if(hls){try{hls.destroy()}catch(e){}hls=null;}if(lastFocusedCard&&lastFocusedCard.offsetParent!==null)lastFocusedCard.focus();}}
   function connect(server,user,pass){
     creds={server:normServer(server),user:user,pass:pass};
     $('#loginMsg').classList.add('hidden');$('#btnConnect').textContent='Conectando…';
@@ -321,6 +343,7 @@
   applySize();
   var ss=LS.get('tvg_srv'),su=LS.get('tvg_usr'),sp=LS.get('tvg_pwd');
   if(ss&&su&&sp){$('#srv').value=ss;$('#usr').value=su;$('#pwd').value=sp;connect(ss,su,sp);}
+  else{setTimeout(function(){var s=$('#srv');if(s)s.focus();},60);}
 })();
 </script>
 </body>
