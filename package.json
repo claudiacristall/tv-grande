@@ -1,0 +1,10 @@
+{
+  "name": "tvgrande",
+  "version": "1.0.0",
+  "packageType": "app",
+  "appName": "TV Grande",
+  "appPath": "app/index.html",
+  "main": "app/index.html",
+  "description": "Interfaz accesible para IPTV (Xtream): portadas grandes, categorias y buscador.",
+  "keys": []
+}
